@@ -1,11 +1,17 @@
 # CS224W
 
+## How to run code
+
+* Download Uber Movement data and put in this folder:
+  * [San Francisco](https://movement.uber.com/cities/san_francisco/downloads/speeds?lang=en-US&tp[y]=2019&tp[q]=2):
+    * `movement-junctions-to-osm-nodes-san-francisco-2019.csv.zip`
+    * `movement-segments-to-osm-ways-san-francisco-2019.csv.zip`
+    * `movement-speeds-quarterly-by-hod-san-francisco-2019-Q2.csv.zip`
+* Install necessary packages with `conda env create -f environment.yml`
+
 ## Possible Next Steps
 
-1. Get Google Cloud set up and download Uber Movement data:
-  * Quarterly Speeds Statistics by Hour of Day (Q2 2019)
-  * Movement Segments to OSM Ways
-  * Movement Junctions to OSM Nodes
+1. Get Google Cloud set up.
 
 2. Get OpenStreetMap nodes/ways as a networkx graph using osmnx (or some other library).
   * For example: https://github.com/gboeing/osmnx-examples/blob/master/notebooks/06-example-osmnx-networkx.ipynb
