@@ -1,4 +1,4 @@
-import collections
+import collections, re
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -7,44 +7,50 @@ import osmnx as ox
 import pandas as pd
 pd.set_option('mode.chained_assignment','raise')
 
-CityData = collections.namedtuple('CityData', 'junctions segments speeds graph')
+CityData = collections.namedtuple('CityData', 'speeds graph')
 
 def load_data_for_city(city):
-    junctions_filename = 'movement-junctions-to-osm-nodes-%s-2019.csv.zip' % city
-    segments_filename = 'movement-segments-to-osm-ways-%s-2019.csv.zip' % city
     speeds_filename = 'movement-speeds-quarterly-by-hod-%s-2019-Q2.csv.zip' % city
     graph_filename = '%s.gpickle.gz' % city
-    data = CityData(
-        junctions = pd.read_csv(junctions_filename),
-        segments = pd.read_csv(segments_filename),
-        speeds = pd.read_csv(speeds_filename),
-        graph = nx.read_gpickle(graph_filename),
-    )
+
+    graph = nx.read_gpickle(graph_filename)
+    print('OSM MultiDiGraph has %d nodes, %d edges' %
+        (nx.number_of_nodes(graph), nx.number_of_edges(graph)))
+    graph = nx.Graph(graph)
+    print('OSM Graph has %d nodes, %d edges' %
+        (nx.number_of_nodes(graph), nx.number_of_edges(graph)))
+
+    speeds = pd.read_csv(speeds_filename)
     # Print basic stats on the data.
-    junctions_num_rows = len(data.junctions)
-    assert junctions_num_rows == data.junctions['junction_id'].nunique()
-    segments_num_rows = len(data.segments)
-    assert segments_num_rows == data.segments['segment_id'].nunique()
-    print('Uber<->OSM mapping has %d junction IDs and %d segment IDs' % 
-        (junctions_num_rows, segments_num_rows))
-    speeds_num_rows = len(data.speeds)
-    speeds_num_distinct_segment_ids = data.speeds['segment_id'].nunique()
+    speeds_num_rows = len(speeds)
+    speeds_num_distinct_segment_ids = speeds['segment_id'].nunique()
     print('Speeds has %d rows, %d distinct segment IDs' %
         (speeds_num_rows, speeds_num_distinct_segment_ids))
-    print('OSM graph has %d nodes, %d edges' %
-        (nx.number_of_nodes(data.graph), nx.number_of_edges(data.graph)))
+    # Drop speeds with hour not in 7-10
+    speeds_to_drop = (speeds['hour_of_day'] < 7) | (speeds['hour_of_day'] > 10)
+    speeds.drop(speeds[speeds_to_drop].index, inplace=True)
+    print('Dropped %d/%d Uber speeds with hour not in 7-10' % (speeds_to_drop.sum(), len(speeds_to_drop)))
+    # For each OSM way ID, we'll just take the average of all the rows present
+    speeds = speeds.groupby('osm_way_id').mean()[
+        ['speed_mph_mean', 'speed_mph_stddev', 'speed_mph_p50', 'speed_mph_p85']]
+    # Compute mean / p85 as the measure of traffic
+    speeds['traffic'] = speeds['speed_mph_mean'] / speeds['speed_mph_p85']
+    print('After processing, %d distinct OSM way IDs in the speeds dataset' % len(speeds))
+    data = CityData(
+        speeds = speeds,
+        graph = graph,
+    )
     return data
 
 def plot_map_for_discrepancy(data):
     """Plots map showing discrepancy between Uber Movement and OSM data"""
-    segment_ids_in_speeds_data = data.speeds['segment_id'].drop_duplicates()
-    osm_way_ids_in_speeds_data = set(data.segments.merge(segment_ids_in_speeds_data,
-        how='inner', on='segment_id')['osm_way_id'])
+    osm_way_ids_in_speeds_data = set(data.speeds.index)
 
+    graph = nx.MultiGraph(data.graph) # Need MultiGraph to plot
     edge_colors = []
     edges_in_uber = 0
     total_edges = 0
-    for v1, v2, edge in data.graph.edges(data=True):
+    for v1, v2, edge in graph.edges(data=True):
         osmid = edge['osmid']
         edge_in_uber = False
         if isinstance(osmid, list):
@@ -56,28 +62,22 @@ def plot_map_for_discrepancy(data):
         total_edges += 1
     print('Out of %d total edges in the OSM graph, %d are in the Uber data' %
         (total_edges, edges_in_uber))
-    ox.plot_graph(data.graph, edge_color=edge_colors, fig_height=12)
+    ox.plot_graph(graph, edge_color=edge_colors, fig_height=12)
 
-def plot_degree_distribution(data):
-    in_degrees = collections.Counter(in_degree for node, in_degree in data.graph.in_degree)
-    out_degrees = collections.Counter(out_degree for node, out_degree in data.graph.out_degree)
+def plot_map_with_traffic(graph, attr='traffic'):
+    graph = nx.MultiGraph(graph) # Need MultiGraph to plot
+    edge_colors = ox.get_edge_colors_by_attr(graph, attr, cmap='PiYG')
+    ox.plot_graph(graph, edge_color=edge_colors, fig_height=12)
 
-    plt.figure(figsize=(10,4))
-    plt.subplot(121)
-    deg, cnt = zip(*sorted(in_degrees.items()))
-    plt.plot(deg, cnt)
-    plt.title('In degree distribution')
-
-    plt.subplot(122)
-    deg, cnt = zip(*sorted(out_degrees.items()))
-    plt.plot(deg, cnt)
-    plt.title('Out degree distribution')
+def plot_degree_distribution(graph):
+    degrees = collections.Counter(degree for node, degree in graph.degree)
+    deg, cnt = zip(*sorted(degrees.items()))
+    plt.bar(deg, cnt)
+    plt.title('Degree distribution')
 
 def merge_uber_osm_data(data):
     """Only keep data when edges are present in both Uber and OSM data"""
-    segment_ids_in_speeds_data = data.speeds['segment_id'].drop_duplicates()
-    osm_way_ids_in_speeds_data = set(data.segments.merge(segment_ids_in_speeds_data,
-        how='inner', on='segment_id')['osm_way_id'])
+    osm_way_ids_in_speeds_data = set(data.speeds.index)
     osm_way_ids_to_keep = set()
 
     # Drop graph edges that aren't present in the Uber data
@@ -105,13 +105,44 @@ def merge_uber_osm_data(data):
     data.graph.remove_nodes_from(nodes_to_drop)
     print('Dropped %d vertices, %d edges from graph' % (len(nodes_to_drop), len(edges_to_drop)))
 
-    # Drop Uber segments that aren't in OSM data
-    segments_to_drop = ~data.segments['osm_way_id'].isin(osm_way_ids_to_keep)
-    data.segments.drop(data.segments[segments_to_drop].index, inplace=True)
+    # Drop Uber speeds rows that aren't in OSM data
+    speeds_to_drop = set(data.speeds.index) - osm_way_ids_to_keep
+    data.speeds.drop(speeds_to_drop, inplace=True)
+    print('Dropped %d Uber speeds not in OSM map' % len(speeds_to_drop))
 
-    # Drop Uber junctions that aren't in OSM data
-    osm_node_ids = set(node['osmid'] for n, node in data.graph.nodes(data=True))
-    junctions_to_drop = ~data.junctions['osm_node_id'].isin(osm_node_ids)
-    data.junctions.drop(data.junctions[junctions_to_drop].index, inplace=True)
-    print('Dropped %d Uber junctions and %d Uber segments' %
-        (junctions_to_drop.sum(), segments_to_drop.sum()))
+    # Add traffic as edge attribute in the graph
+    for v1, v2, edge in data.graph.edges(data=True):
+        edge['traffic'] = data.speeds.loc[edge['osmid'], 'traffic']
+
+def create_dataframe_for_baseline(data):
+    def getprop(edge, prop, default):
+        if prop not in edge: return default
+        x = edge[prop]
+        if isinstance(x, list):
+            x = x[0]
+        return x
+
+    rows = []
+    for v1, v2, edge in data.graph.edges(data=True):
+        maxspeed = 30 # Assume 30 by default
+        m = re.match(r'(\d+).*', getprop(edge, 'maxspeed', ''))
+        if m:
+            maxspeed = int(m.group(1))
+        lanes = getprop(edge, 'lanes', 1) # Assume 1 by default
+        if isinstance(lanes, str):
+            m = re.match(r'(\d+).*', lanes)
+            if m:
+                lanes = int(m.group(1))
+            else:
+                lanes = 1
+        rows.append({
+            'osm_way_id': edge['osmid'],
+            'lanes': lanes,
+            'length': getprop(edge, 'length', 0), # Assume 0 by default
+            'maxspeed': maxspeed,
+            'traffic': edge['traffic'],
+        })
+    df = pd.DataFrame(rows)
+    # Just take the average of all fields over a given OSM way ID
+    df = df.groupby('osm_way_id').mean()
+    return df
