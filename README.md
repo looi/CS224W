@@ -4,16 +4,10 @@
 
 * Download Uber Movement data and put in this folder:
   * [San Francisco](https://movement.uber.com/cities/san_francisco/downloads/speeds?lang=en-US&tp[y]=2019&tp[q]=2):
-    * `movement-junctions-to-osm-nodes-san-francisco-2019.csv.zip`
-    * `movement-segments-to-osm-ways-san-francisco-2019.csv.zip`
     * `movement-speeds-quarterly-by-hod-san-francisco-2019-Q2.csv.zip`
   * [New York](https://movement.uber.com/cities/new_york/downloads/speeds?lang=en-US&tp[y]=2019&tp[q]=2):
-    * `movement-junctions-to-osm-nodes-new-york-2019.csv.zip`
-    * `movement-segments-to-osm-ways-new-york-2019.csv.zip`
     * `movement-speeds-quarterly-by-hod-new-york-2019-Q2.csv.zip`
   * [Seattle](https://movement.uber.com/cities/seattle/downloads/speeds?lang=en-US&tp[y]=2019&tp[q]=2):
-    * `movement-junctions-to-osm-nodes-seattle-2019.csv.zip`
-    * `movement-segments-to-osm-ways-seattle-2019.csv.zip`
     * `movement-speeds-quarterly-by-hod-seattle-2019-Q2.csv.zip`
 * Install necessary packages with `conda env create -f environment.yml`
 * Run `download_osm.py` to download OSM maps for San Francisco, New York, Seattle.

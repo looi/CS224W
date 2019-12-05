@@ -5,22 +5,23 @@ import networkx as nx
 import numpy as np
 import osmnx as ox
 import pandas as pd
+import os.path
 pd.set_option('mode.chained_assignment','raise')
 
 CityData = collections.namedtuple('CityData', 'speeds graph')
 
-def load_data_for_city(city):
+def load_data_for_city(city, root_dir='.'):
     speeds_filename = 'movement-speeds-quarterly-by-hod-%s-2019-Q2.csv.zip' % city
     graph_filename = '%s.gpickle.gz' % city
 
-    graph = nx.read_gpickle(graph_filename)
+    graph = nx.read_gpickle(os.path.join(root_dir, graph_filename))
     print('OSM MultiDiGraph has %d nodes, %d edges' %
         (nx.number_of_nodes(graph), nx.number_of_edges(graph)))
     graph = nx.Graph(graph)
     print('OSM Graph has %d nodes, %d edges' %
         (nx.number_of_nodes(graph), nx.number_of_edges(graph)))
 
-    speeds = pd.read_csv(speeds_filename)
+    speeds = pd.read_csv(os.path.join(root_dir, speeds_filename))
     # Print basic stats on the data.
     speeds_num_rows = len(speeds)
     speeds_num_distinct_segment_ids = speeds['segment_id'].nunique()
