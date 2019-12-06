@@ -6,6 +6,8 @@ import numpy as np
 import osmnx as ox
 import pandas as pd
 import os.path
+import re
+import random
 pd.set_option('mode.chained_assignment','raise')
 
 CityData = collections.namedtuple('CityData', 'speeds graph')
@@ -43,6 +45,46 @@ def load_data_for_city(city, root_dir='.'):
     )
     return data
 
+def load_cesna_communities(filename):
+    cs = {}
+    for line in open(filename):
+        m = re.match(r'\D*(\d+)\D*(\d+)\D*(\d+)\D*', line)
+        cs[(int(m.group(1)), int(m.group(2)))] = int(m.group(3))
+    num_bidir = 0
+    num_mismatch = 0
+    for (a,b), c in cs.items():
+        if (b,a) in cs:
+            num_bidir += 1
+            if cs[(b,a)] != c: 
+                num_mismatch += 1
+    print('Out of %d total roads, %d are bidirectional and out of those, %d have different communities for each direction' % (len(cs), num_bidir, num_mismatch))
+    return cs
+
+def add_cesna_communities_to_graph(cs, graph):
+    total = 0
+    notfound = 0
+    for v1, v2, edge in graph.edges(data=True):
+        total += 1
+        if (v1,v2) in cs:
+            edge['cesna'] = cs[(v1,v2)]
+        elif (v2,v1) in cs:
+            edge['cesna'] = cs[(v2,v1)]
+        else:
+            notfound += 1
+            edge['cesna'] = -1
+    print('Out of %d edges, %d not found in cesna communities' % (total, notfound))
+
+def plot_map_with_cesna_communities(graph):
+    graph = nx.MultiGraph(graph) # Need MultiGraph to plot
+    attr_values = pd.Series([data['cesna'] for u, v, key, data in graph.edges(keys=True, data=True)])
+    values = sorted(attr_values.drop_duplicates())
+    color_map = ox.get_colors(len(values), cmap='jet')
+    # Try to reduce likelihood of neighboring communities having similar color.
+    random.shuffle(color_map)
+    cv_map = {v:color_map[k] for k, v in enumerate(values)}
+    edge_colors = attr_values.map(lambda x: cv_map[x])
+    ox.plot_graph(graph, edge_color=edge_colors, fig_height=12)
+
 def plot_map_for_discrepancy(data):
     """Plots map showing discrepancy between Uber Movement and OSM data"""
     osm_way_ids_in_speeds_data = set(data.speeds.index)
@@ -67,7 +109,14 @@ def plot_map_for_discrepancy(data):
 
 def plot_map_with_traffic(graph, attr='traffic'):
     graph = nx.MultiGraph(graph) # Need MultiGraph to plot
-    edge_colors = ox.get_edge_colors_by_attr(graph, attr, cmap='PiYG')
+    # Plot percentiles instead of get_edge_colors_by_attr
+    # which seems to have some issues
+    #edge_colors = ox.get_edge_colors_by_attr(graph, attr, cmap='PiYG')
+    cmap = cm.get_cmap('PiYG')
+    vals = pd.Series([edge[attr] for _, _, edge in graph.edges(data=True)])
+    vals = vals.rank(pct=True)
+    vals = list(vals)
+    edge_colors = [cmap(x) for x in vals]
     ox.plot_graph(graph, edge_color=edge_colors, fig_height=12)
 
 def plot_degree_distribution(graph):
