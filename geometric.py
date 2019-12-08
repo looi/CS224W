@@ -8,22 +8,23 @@ import networkx as nx
 import data_loader
 
 class TrafficSageNet(nn.Module):
-    def __init__(self):
+    def __init__(self, num_layers, hidden_dim):
         super(TrafficSageNet, self).__init__()
-        self.conv1 = GraphSage(3, 16)
-        self.conv2 = GraphSage(16, 16)
-        self.lin1 = nn.Linear(16, 1)
+        self.convs = nn.ModuleList()
+        self.convs.append(GraphSage(3, hidden_dim))
+        assert (num_layers >= 1), 'Number of layers is not >=1'
+        for l in range(num_layers-1):
+            self.convs.append(GraphSage(hidden_dim, hidden_dim))
+        self.lin1 = nn.Linear(hidden_dim, 1)
+        self.num_layers = num_layers
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
 
-        x = self.conv1(x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, training=self.training)
-
-        x = self.conv2(x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, training=self.training)
+        for i in range(self.num_layers):
+            x = self.convs[i](x, edge_index)
+            x = F.relu(x)
+            x = F.dropout(x, p=0.5, training=self.training)
 
         return self.lin1(x)
 
@@ -93,9 +94,9 @@ def create_line_graph_for_torch_geometric(data):
     tg_graph['x'] = torch.stack((tg_graph['lanes'], tg_graph['length'], tg_graph['maxspeed'])).transpose(0,1)
     return tg_graph, traffic_values, node_map
 
-def train_model(tg_graph, traffic_values, num_epochs):
+def train_model(tg_graph, traffic_values, num_layers, num_epochs, hidden_dim):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = TrafficSageNet().to(device)
+    model = TrafficSageNet(num_layers, hidden_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
     traffic_values = torch.tensor(traffic_values, device=device).reshape((-1, 1))
     tg_graph = tg_graph.to(device)
@@ -105,7 +106,7 @@ def train_model(tg_graph, traffic_values, num_epochs):
         optimizer.zero_grad()
         out = model(tg_graph)
         loss = F.mse_loss(out, traffic_values)
-        print('Epoch %03d: MSE %.2f' % (epoch, loss))
+        print('Epoch %03d: sqrt(MSE) = %.2f' % (epoch, loss.sqrt()))
         loss.backward()
         optimizer.step()
     # Return model in eval mode
