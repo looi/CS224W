@@ -11,7 +11,7 @@ import torch_geometric.nn as pyg_nn
 class BaselineGCN(nn.Module):
     def __init__(self, input_dim, model):
         super(BaselineGCN, self).__init__()
-        self.conv = pyg_nn.GCNConv(in_channels = input_dim, out_channels = input_dim)
+        self.conv = MeanMP()
         self.post_model = model
 
     def forward(self, data):
@@ -20,6 +20,23 @@ class BaselineGCN(nn.Module):
         x = self.conv(x, edge_index)
         
         return self.post_model(x)
+
+class MeanMP(pyg_nn.MessagePassing):
+    """Just compute mean"""
+    def __init__(self, ):
+        super(MeanMP, self).__init__(aggr = 'mean')
+
+
+    def forward(self, x, edge_index):
+        num_nodes = x.size(0)
+        return self.propagate(edge_index, size=(num_nodes, num_nodes), x=x)
+
+    # Message is just feature
+    def message(self, x_j, edge_index, size):
+        return x_j
+
+    def update(self, aggr_out, x):
+        return aggr_out
 
 class SimpleNeuralNetwork(nn.Module):
     def __init__(self, input_dim, output_dim, num_hidden_layers, hidden_dim):
