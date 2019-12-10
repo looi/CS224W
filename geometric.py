@@ -129,6 +129,12 @@ def train_gnn_model(gds, num_layers, num_epochs, hidden_dim, output_dim, reducer
     model = TrafficSageNet(num_layers, input_dim, hidden_dim, output_dim, reducer).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
+    # Weight each graph inverse proportional to its size
+    graph_sizes = np.array([len(gd.traffic_classes) for gd in gds], dtype=np.int64)
+    weights = graph_sizes.sum() / graph_sizes
+    weights = np.repeat(weights, graph_sizes)
+    weights = torch.tensor(weights, device=device, dtype=torch.float)
+
     traffic_classes = torch.cat([torch.tensor(gd.traffic_classes, device=device).to(torch.int64) for gd in gds], dim=0)
     tg_graphs = torch_geometric.data.Batch.from_data_list([gd.tg_graph for gd in gds]).to(device)
     class_weights = torch.stack([torch.tensor(gd.class_weights, device=device) for gd in gds]).sum(dim=0)
@@ -138,7 +144,7 @@ def train_gnn_model(gds, num_layers, num_epochs, hidden_dim, output_dim, reducer
         optimizer.zero_grad()
         out = model(tg_graphs)
         #loss = F.mse_loss(out, traffic_values)
-        loss = F.nll_loss(out, traffic_classes, weight=class_weights)
+        loss = (F.nll_loss(out, traffic_classes, weight=class_weights, reduction='none') * weights).mean()
         accuracy = (out.argmax(dim=1)==traffic_classes).float().mean()
         print('Epoch %03d: loss = %.5f, accuracy = %.5f' % (epoch, loss, accuracy))
         loss.backward()

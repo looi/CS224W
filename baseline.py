@@ -61,6 +61,12 @@ def train_gcn_baseline(gds, output_dim, num_hidden_layers, num_epochs, hidden_di
     model = BaselineGCN(input_dim, linear_model).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
+    # Weight each graph inverse proportional to its size
+    graph_sizes = np.array([len(gd.traffic_classes) for gd in gds], dtype=np.int64)
+    weights = graph_sizes.sum() / graph_sizes
+    weights = np.repeat(weights, graph_sizes)
+    weights = torch.tensor(weights, device=device, dtype=torch.float)
+
     traffic_classes = torch.cat([torch.tensor(gd.traffic_classes, device=device).to(torch.int64) for gd in gds], dim=0)
     tg_graphs = torch_geometric.data.Batch.from_data_list([gd.tg_graph for gd in gds]).to(device)
     class_weights = torch.stack([torch.tensor(gd.class_weights, device=device) for gd in gds]).sum(dim=0)
@@ -70,7 +76,7 @@ def train_gcn_baseline(gds, output_dim, num_hidden_layers, num_epochs, hidden_di
         optimizer.zero_grad()
         out = model(tg_graphs)
         #loss = F.mse_loss(out, traffic_values)
-        loss = F.nll_loss(out, traffic_classes, weight=class_weights)
+        loss = (F.nll_loss(out, traffic_classes, weight=class_weights, reduction='none') * weights).mean()
         accuracy = (out.argmax(dim=1)==traffic_classes).float().mean()
         print('Epoch %03d: loss = %.5f, accuracy = %.5f' % (epoch, loss, accuracy))
         loss.backward()
@@ -81,9 +87,13 @@ def train_gcn_baseline(gds, output_dim, num_hidden_layers, num_epochs, hidden_di
 
 def train_neural_network(data, output_dim, num_hidden_layers, num_epochs, hidden_dim=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    linear_data = pd.concat(
-        [data_loader.create_dataframe_for_baseline(df) for df in data],
-        ignore_index=True)
+    dfs = [data_loader.create_dataframe_for_baseline(df) for df in data]
+    linear_data = pd.concat(dfs, ignore_index=True)
+    # Weight each graph inverse proportional to its size
+    graph_sizes = np.array([len(df) for df in dfs], dtype=np.int64)
+    weights = graph_sizes.sum() / graph_sizes
+    weights = np.repeat(weights, graph_sizes)
+    weights = torch.tensor(weights, device=device, dtype=torch.float)
     train_X = torch.tensor(linear_data[['lanes', 'length', 'maxspeed', 'diff_community', 'degree']].to_numpy(), device=device, dtype=torch.float)
     #scaler = StandardScaler()
     #scaler.fit(train_X)
@@ -91,6 +101,7 @@ def train_neural_network(data, output_dim, num_hidden_layers, num_epochs, hidden
     vc = linear_data['traffic_class'].value_counts()
     print(vc)
     tot = vc.sum()
+    # Weight each class inverse proportional to its size
     class_weights = {k:tot/v for k,v in vc.iteritems()}
     class_weights = [class_weights[i] for i in range(len(class_weights))]
     print(class_weights)
@@ -105,7 +116,7 @@ def train_neural_network(data, output_dim, num_hidden_layers, num_epochs, hidden
         optimizer.zero_grad()
         out = model(train_X)
         #loss = F.mse_loss(out, traffic_values)
-        loss = F.nll_loss(out, traffic_classes, weight=class_weights)
+        loss = (F.nll_loss(out, traffic_classes, weight=class_weights, reduction='none') * weights).mean()
         accuracy = (out.argmax(dim=1)==traffic_classes).float().mean()
         print('Epoch %03d: loss = %.5f, accuracy = %.5f' % (epoch, loss, accuracy))
         loss.backward()
