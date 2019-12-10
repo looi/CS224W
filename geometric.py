@@ -102,7 +102,7 @@ def create_gnn_data_structures(data):
     for (a, b), (c, d) in data.line_graph.edges():
         new_graph.add_edge(node_map[a,b], node_map[c,d])
     traffic_classes = [None]*new_graph.number_of_nodes()
-    attrs = ('lanes', 'length', 'maxspeed', 'diff_community', 'degree')
+    attrs = ['lanes', 'length', 'diff_community', 'degree'] + ['road_type_%d'%i for i in range(13)]
     for v1, v2, edge in data.graph.edges(data=True):
         # line_graph will use vertices (a1,a2) where a1<a2
         a1, a2 = v1, v2

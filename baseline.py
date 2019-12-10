@@ -94,7 +94,7 @@ def train_neural_network(data, output_dim, num_hidden_layers, num_epochs, hidden
     weights = graph_sizes.sum() / graph_sizes
     weights = np.repeat(weights, graph_sizes)
     weights = torch.tensor(weights, device=device, dtype=torch.float)
-    train_X = torch.tensor(linear_data[['lanes', 'length', 'maxspeed', 'diff_community', 'degree']].to_numpy(), device=device, dtype=torch.float)
+    train_X = torch.tensor(linear_data[['lanes', 'length', 'diff_community', 'degree'] + ['road_type_%d'%i for i in range(13)]].to_numpy(), device=device, dtype=torch.float)
     #scaler = StandardScaler()
     #scaler.fit(train_X)
     #train_X = scaler.transform(train_X)
@@ -128,7 +128,7 @@ def train_neural_network(data, output_dim, num_hidden_layers, num_epochs, hidden
 def plot_map_with_neural_network_predicted_traffic(data, model):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     linear_data = data_loader.create_dataframe_for_baseline(data)
-    x = torch.tensor(linear_data[['lanes', 'length', 'maxspeed', 'diff_community', 'degree']].to_numpy(), device=device, dtype=torch.float)
+    x = torch.tensor(linear_data[['lanes', 'length', 'diff_community', 'degree'] + ['road_type_%d'%i for i in range(13)]].to_numpy(), device=device, dtype=torch.float)
     traffic_classes = torch.tensor(linear_data['traffic_class'].to_numpy(), device=device, dtype=torch.int64)
     # max(dim=1) returns values, indices tuple; only need indices
     out = model(x).detach().max(dim=1)[1]

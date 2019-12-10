@@ -258,6 +258,7 @@ def create_dataframe_for_baseline(data):
     n2c = {n:c for c, ns in enumerate(data.gmmc) for n in ns}
 
     rows = []
+    road_types = {} # Use consistent road type for osmid
     for v1, v2, edge in data.graph.edges(data=True):
         maxspeed = 30 # Assume 30 by default
         m = re.match(r'(\d+).*', getprop(edge, 'maxspeed', ''))
@@ -271,7 +272,10 @@ def create_dataframe_for_baseline(data):
             else:
                 lanes = 1
         line_graph_node = (v1,v2) if data.line_graph.has_node((v1,v2)) else (v2,v1)
-        rows.append({
+        if edge['osmid'] not in road_types:
+            road_types[edge['osmid']] = get_road_type(edge)
+        road_type = road_types[edge['osmid']]
+        obj = {
             'osm_way_id': edge['osmid'],
             'traffic_class': edge['traffic_class'],
             'lanes': lanes,
@@ -279,8 +283,53 @@ def create_dataframe_for_baseline(data):
             'maxspeed': maxspeed,
             'diff_community': 0 if n2c[v1] == n2c[v2] else 1,
             'degree': data.line_graph.degree[line_graph_node],
-        })
+        }
+        for i in range(13):
+            obj['road_type_%d'%i] = 1 if road_type==i else 0
+        rows.append(obj)
     df = pd.DataFrame(rows)
     # Just take the average of all fields over a given OSM way ID
     df = df.groupby('osm_way_id').mean()
     return df
+
+def get_road_type(p3):
+    # p3 is edge attribute dict
+    result = p3['highway']
+    if isinstance(result, list):
+        if 'footway' in result or 'steps' in result or 'track' in result or 'path' in result:
+            result = 'residential'
+        elif 'residential' in result:
+            result = 'residential'
+        elif 'primary' in result:
+            result = 'primary'
+        elif 'secondary' in result:
+            result = 'secondary'
+        elif 'tertiary' in result:
+            result = 'tertiary'
+        elif 'motorway' in result:
+            result = 'motorway'
+        elif 'secondary_link' in result:
+            result = 'secondary_link'
+        elif 'tertiary_link' in result:
+            result = 'tertiary_link'
+        elif 'motorway_link' in result:
+            result = 'motorway_link'
+        elif 'service' in result:
+            result = 'service'
+    if result in ['living_street', 'pedestrian', 'razed']:
+        result = 'residential'
+    return {
+        'residential': 0,
+        'primary_link': 1,
+        'service': 2,
+        'motorway_link': 3,
+        'trunk': 4,
+        'secondary': 5,
+        'motorway': 6,
+        'secondary_link': 7,
+        'trunk_link': 8,
+        'unclassified': 9,
+        'tertiary_link': 10,
+        'primary': 11,
+        'tertiary': 12,
+    }[result]
